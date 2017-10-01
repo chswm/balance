@@ -24,10 +24,10 @@ class Balance
 {
 public:
 	Balance(char* host, unsigned short port);// 监视客户连接
-	static void *Wakeup(void *arg);
+	void *Wakeup();
 	void ConSer(char* host, unsigned short port);//连接服务器
 	
-	void Readcli(int fd);
+	static void* Readcli(void *arg);
 	void Readser();
 	void Writeser();
 	
@@ -37,6 +37,7 @@ public:
 	void setnonblock(int fd);
 	
 private:
+	struct mArgu{ Balance* mb; int fd;};
 	queue<int> ser_fd;
 	map<int,int> mcli;
 	int epfd;
@@ -68,21 +69,18 @@ Balance::Balance(char* host, unsigned short port)
 	add_fd(clifd);
 }
 
-void *Balance::Wakeup(void *arg)
+void *Balance::Wakeup()
 {
 	struct sockaddr_in caddr;
 	socklen_t len = sizeof(caddr);
-	Balance *tmp = (Balance*)arg;
-	int fd = tmp->clifd;
 	
-	int cli_c = accept(fd,(struct sockaddr*)&caddr,&len);
+	int cli_c = accept(clifd,(struct sockaddr*)&caddr,&len);
 	if(cli_c < 0)
 	{
 		cout<<"accept error";
 		return NULL;
 	}
-	tmp->add_fd(cli_c);	
-	pthread_exit(NULL);
+	add_fd(cli_c);	
 	//cout<<;
 }
 
@@ -109,12 +107,18 @@ void Balance::wait()
 				{
 					if(fds[i].data.fd == clifd)
 					{
-						pthread_t tid;
-						pthread_create(&tid,NULL,Wakeup, (void*)this);
+						//pthread_t tid;
+						//pthread_create(&tid,NULL,Wakeup, (void*)this);
+						Wakeup();
 					}
 					else 
 					{
-						Readcli(fds[i].data.fd);
+						struct mArgu arg;
+						arg.mb = this;
+						arg.fd = fds[i].data.fd;
+						//Readcli(fds[i].data.fd);
+						pthread_t tid;
+						pthread_create(&tid,NULL,Readcli, (void*)&arg);
 					}
 				}
 			}//for
@@ -162,26 +166,32 @@ void Balance::ConSer(char* host, unsigned short port)
 	memset(&saddr,0,sizeof(saddr));
 
 	saddr.sin_family = AF_INET;
-	saddr.sin_port = htons(6500);
+	saddr.sin_port = htons(port);
 	saddr.sin_addr.s_addr = inet_addr("192.168.1.108");
 
 	int res = connect(serfd,(struct sockaddr*)&saddr,sizeof(saddr));
 	assert(res != -1);
 
 	ser_fd.push(serfd);	
+	cout<<"server ip:"<<inet_ntoa(saddr.sin_addr)<<" port:"<<
+    ntohs(saddr.sin_port)<<endl;
 
 }
 
 
-void Balance::Readcli(int fd)
+void* Balance::Readcli(void *arg)
 {//创建线程
+	struct mArgu* tmp = (struct mArgu*)arg;
+	int fd = tmp->fd;
 	char buff[1024] = {0};
 	int c = 0;
-	map<int,int>::iterator it = mcli.find(fd);
-	if(it == mcli.end())
+	map<int,int>::iterator it = tmp->mb->mcli.find(fd);
+	if(it == tmp->mb->mcli.end())
 	{
-		 c = ser_fd.front();
-		mcli.insert(make_pair(fd,c));
+		 c = tmp->mb->ser_fd.front();
+		 tmp->mb->ser_fd.pop();
+		tmp->mb->mcli.insert(make_pair(fd,c));
+		tmp->mb->ser_fd.push(c);
 	}
 	else
 	{c = it->second;}
@@ -191,7 +201,7 @@ void Balance::Readcli(int fd)
 		if(n == -1)break;
 		if(n == 0)
 		{
-			del_fd(fd);
+			tmp->mb->del_fd(fd);
 			close(fd);
 			break;
 		}
@@ -199,7 +209,7 @@ void Balance::Readcli(int fd)
 		
 		
 		int m = send(c,buff,n,0);// 向ser发送数据
-		cout<<"send"<<c<<endl;
+		cout<<"send: "<<c<<endl;
 		memset(buff,0,1024);
 		if(recv(c,buff,1023,0) == 2)
 		{
@@ -209,7 +219,7 @@ void Balance::Readcli(int fd)
 			
 		memset(buff,0,1024);
 	}
-	
+	pthread_exit(NULL);
 }
 
 
@@ -236,8 +246,12 @@ int main(int argc, char *argv[])
 	unsigned short port = atoi(argv[2]);
 	
 	Balance B(argv[1],port);
-	B.ConSer(argv[1],6500);//连接一个服务器
-	
+	unsigned short p = 0;
+	while(cin>>p,p)
+	{
+		B.ConSer(argv[1],p);//连接一个服务器
+		//B.ConSer(argv[1],6700);
+	}
 
 	B.wait();
 	return 0;

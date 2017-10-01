@@ -41,7 +41,7 @@ int main()
     struct sockaddr_in saddr,caddr;
     memset(&saddr,0,sizeof(saddr));
     saddr.sin_family = AF_INET;
-    saddr.sin_port = htons(6500);
+    saddr.sin_port = htons(6700);
     saddr.sin_addr.s_addr = inet_addr("192.168.1.108");
     int res = bind(sockfd,(struct sockaddr*)&saddr,sizeof(saddr));
     assert( res != -1);
@@ -55,6 +55,9 @@ int main()
             perror("accept error\n");
             continue;
         }
+
+         cout<<"client connected! ip:"<<inet_ntoa(caddr.sin_addr)<<" port:"<<
+    ntohs(caddr.sin_port)<<endl;
         pthread_t id;
         int err = pthread_create(&id,NULL,fun,(void*)c);
 
@@ -63,5 +66,7 @@ int main()
 	     	cout<<"phread error"<<endl;
      	}
     }
+
+    return 0;
 }
 
